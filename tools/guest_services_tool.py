@@ -2,14 +2,13 @@
 Add services to an existing booking, or file a complaint.
 """
 import json
-from tools.tool_registry import tool
+from langchain_core.tools import tool
 from db.sqlite_client import (
     add_booking_service,
     create_complaint,
     get_booking,
     get_services_for_hotel,
 )
-
 
 @tool
 def guest_services_tool(

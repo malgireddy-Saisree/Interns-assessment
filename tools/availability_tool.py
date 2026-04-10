@@ -2,7 +2,7 @@
 Check room availability for a given hotel, room type, and date range.
 """
 import json
-from tools.tool_registry import tool
+from langchain_core.tools import tool
 from db.sqlite_client import get_available_rooms, get_all_hotels, get_room_types
 
 

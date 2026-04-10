@@ -1,52 +1,19 @@
 """
-Guest services agent — handles in-stay requests:
-room service, housekeeping, maintenance, add-on services, complaints.
-The planner routes here for guest service intents.
+Guest Services Agent node for LangGraph.
 """
-import json
-from typing import Dict, Any
+from langchain_core.messages import SystemMessage
+from langgraph.prebuilt import create_react_agent
+from agents.llm_factory import get_llm
+from tools.guest_services_tool import guest_services_tool
+from tools.guest_history_tool import guest_history_tool
 
-from db.sqlite_client import (
-    add_booking_service,
-    create_complaint,
-    get_booking,
-    get_services_for_hotel,
-)
+SERVICES_PROMPT = """You are an in-stay guest services specialist.
+You help current or past guests order services, file complaints, or look up their booking history.
+You can look up their profile and recent bookings using the guest_history_tool.
+You can also add services to their active booking or file complaints using guest_services_tool.
+"""
 
-
-def list_available_services(booking_id: str) -> Dict[str, Any]:
-    """Return the list of services available for a booking's hotel."""
-    bk = get_booking(booking_id)
-    if not bk:
-        return {"error": f"Booking '{booking_id}' not found."}
-    services = get_services_for_hotel(bk["hotel_id"])
-    return {
-        "booking_id": booking_id,
-        "hotel_id": bk["hotel_id"],
-        "available_services": services,
-    }
-
-
-def add_service(booking_id: str, service_id: str, quantity: int = 1) -> Dict[str, Any]:
-    """Add a service to a booking — writes to DB."""
-    return add_booking_service(booking_id, service_id, quantity)
-
-
-def file_complaint(
-    booking_id: str,
-    complaint_type: str,
-    description: str,
-    priority: str = "medium",
-) -> Dict[str, Any]:
-    """File a guest complaint — writes to DB."""
-    bk = get_booking(booking_id)
-    if not bk:
-        return {"error": f"Booking '{booking_id}' not found."}
-    return create_complaint(
-        booking_id=booking_id,
-        customer_id=bk["customer_id"],
-        hotel_id=bk["hotel_id"],
-        complaint_type=complaint_type,
-        description=description,
-        priority=priority,
-    )
+def get_guest_services_agent():
+    llm = get_llm()
+    tools = [guest_services_tool, guest_history_tool]
+    return create_react_agent(llm, tools, prompt=SERVICES_PROMPT)

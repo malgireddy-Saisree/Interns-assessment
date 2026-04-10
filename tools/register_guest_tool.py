@@ -2,7 +2,7 @@
 Register a new guest in the system.
 """
 import json
-from tools.tool_registry import tool
+from langchain_core.tools import tool
 from db.sqlite_client import create_customer
 
 

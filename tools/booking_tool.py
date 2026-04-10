@@ -2,7 +2,7 @@
 Create a new booking in the database.
 """
 import json
-from tools.tool_registry import tool
+from langchain_core.tools import tool
 from db.sqlite_client import create_booking
 
 

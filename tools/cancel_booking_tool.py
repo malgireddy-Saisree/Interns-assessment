@@ -2,7 +2,7 @@
 Cancel an existing booking and process refund.
 """
 import json
-from tools.tool_registry import tool
+from langchain_core.tools import tool
 from db.sqlite_client import cancel_booking
 
 

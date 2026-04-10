@@ -4,10 +4,9 @@ Uses SQLite queries against hotels, room_types, and services tables,
 plus a static FAQ dictionary for common questions.
 """
 import json
-from tools.tool_registry import tool
+from langchain_core.tools import tool
 from db.sqlite_client import get_all_hotels, get_room_types, get_services_for_hotel
 
-# Static FAQ for common questions
 _STATIC_FAQ = {
     "check_in_time": "Check-in time varies by hotel. StayEase City Grand: 14:00 (2 PM). StayEase Beach Resort: 15:00 (3 PM).",
     "check_out_time": "Check-out time varies by hotel. StayEase City Grand: 12:00 (noon). StayEase Beach Resort: 11:00 (11 AM).",

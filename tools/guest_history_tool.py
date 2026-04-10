@@ -2,7 +2,7 @@
 Look up guest profile and booking history.
 """
 import json
-from tools.tool_registry import tool
+from langchain_core.tools import tool
 from db.sqlite_client import get_customer, get_customer_bookings, get_customer_by_email
 
 

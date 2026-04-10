@@ -4,7 +4,7 @@ In production this would send email/SMS via Azure Communication Services.
 """
 import json
 from datetime import datetime
-from tools.tool_registry import tool
+from langchain_core.tools import tool
 from db.sqlite_client import log_audit
 
 
