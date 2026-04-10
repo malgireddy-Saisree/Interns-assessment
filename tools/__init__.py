@@ -8,6 +8,7 @@ from .faq_search_tool import faq_search_tool
 from .guest_history_tool import guest_history_tool
 from .guest_services_tool import guest_services_tool
 from .notification_tool import notification_tool
+from .register_guest_tool import register_guest_tool
 
 ALL_TOOLS = [
     availability_tool,
@@ -17,4 +18,6 @@ ALL_TOOLS = [
     guest_history_tool,
     guest_services_tool,
     notification_tool,
+    register_guest_tool,
 ]
+

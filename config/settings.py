@@ -21,3 +21,9 @@ DB_PATH: str = os.getenv("DB_PATH", str(Path(__file__).resolve().parent.parent /
 
 # ── Memory ────────────────────────────────────────────────────
 CONVERSATION_WINDOW_SIZE: int = int(os.getenv("CONVERSATION_WINDOW_SIZE", "10"))
+
+# ── Cosmos DB ─────────────────────────────────────────────────
+COSMOS_ENDPOINT: str = os.getenv("COSMOS_ENDPOINT", "")
+COSMOS_KEY: str = os.getenv("COSMOS_KEY", "")
+COSMOS_DATABASE_NAME: str = os.getenv("COSMOS_DATABASE_NAME", "SupportMemoryDB")
+COSMOS_CONTAINER_NAME: str = os.getenv("COSMOS_CONTAINER_NAME", "CustomerMemory")

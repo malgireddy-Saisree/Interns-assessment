@@ -368,6 +368,30 @@ def get_customer_by_email(email: str) -> Optional[Dict[str, Any]]:
     rows = query("SELECT * FROM customers WHERE email = ?", (email,))
     return rows[0] if rows else None
 
+def create_customer(name: str, email: str, phone: str = "") -> Dict[str, Any]:
+    """Register a new customer and return their profile."""
+    # Check if email already exists
+    existing = get_customer_by_email(email)
+    if existing:
+        return {"error": f"Customer with email '{email}' already exists.", "customer_id": existing["customer_id"]}
+    
+    # Generate ID and insert
+    cust_id = f"C{uuid.uuid4().hex[:4].upper()}"
+    execute(
+        "INSERT INTO customers (customer_id, name, email, phone) "
+        "VALUES (?, ?, ?, ?)",
+        (cust_id, name, email, phone)
+    )
+    
+    return {
+        "customer_id": cust_id,
+        "name": name,
+        "email": email,
+        "phone": phone,
+        "loyalty_points": 0,
+        "total_stays": 0
+    }
+
 
 def get_booking(booking_id: str) -> Optional[Dict[str, Any]]:
     """Get a single booking by ID."""

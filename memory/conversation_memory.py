@@ -1,56 +1,65 @@
 """
-LangChain ConversationBufferWindowMemory wrapper.
-Keeps the last k turns per conversation_id so GPT-4o has context
-of the full conversation so far.
+Persistent conversation memory using Azure Cosmos DB.
+Keeps the last k turns per conversation_id.
 """
-from typing import Dict, List
-from dataclasses import dataclass, field
+from typing import Dict, List, Any
+from dataclasses import dataclass, asdict
 from config.settings import CONVERSATION_WINDOW_SIZE
+from db.cosmos_client import get_memory_document, save_memory_document
 
 
 @dataclass
 class _Message:
-    type: str  # "human" or "ai"
+    type: str  
     content: str
 
 
-class _ChatMemory:
-    """Simple chat memory that stores messages in a list."""
+class _CosmosChatMemory:
+    """Chat memory that persists messages into Cosmos DB."""
 
-    def __init__(self, k: int = 10):
+    def __init__(self, conversation_id: str, k: int = 10):
+        self.conversation_id = conversation_id
         self.k = k
-        self.messages: List[_Message] = []
+
+    @property
+    def messages(self) -> List[_Message]:
+        """Fetch messages from Cosmos DB."""
+        doc = get_memory_document(self.conversation_id)
+        history = doc.get("history", [])
+        return [_Message(**m) for m in history]
 
     def add_user_message(self, content: str) -> None:
-        self.messages.append(_Message(type="human", content=content))
-        self._trim()
+        """Add human message and persist."""
+        self._add_message("human", content)
 
     def add_ai_message(self, content: str) -> None:
-        self.messages.append(_Message(type="ai", content=content))
-        self._trim()
+        """Add assistant message and persist."""
+        self._add_message("ai", content)
 
-    def _trim(self) -> None:
-        # Keep last k pairs (2*k messages)
+    def _add_message(self, msg_type: str, content: str) -> None:
+        doc = get_memory_document(self.conversation_id)
+        history = doc.get("history", [])
+        history.append({"type": msg_type, "content": content})
+        
+        # Trim history: keep last k pairs (2*k messages)
         max_msgs = self.k * 2
-        if len(self.messages) > max_msgs:
-            self.messages = self.messages[-max_msgs:]
+        if len(history) > max_msgs:
+            history = history[-max_msgs:]
+        
+        doc["history"] = history
+        save_memory_document(doc)
 
 
 class ConversationMemory:
-    """Wrapper mimicking LangChain's ConversationBufferWindowMemory."""
+    """Wrapper that matches the previous session-based interface but uses Cosmos DB."""
 
-    def __init__(self, k: int = 10):
-        self.chat_memory = _ChatMemory(k=k)
-
-
-_memories: Dict[str, ConversationMemory] = {}
+    def __init__(self, conversation_id: str, k: int = 10):
+        self.chat_memory = _CosmosChatMemory(conversation_id, k=k)
 
 
 def get_memory(conversation_id: str) -> ConversationMemory:
-    """Return (or create) the memory object for a conversation."""
-    if conversation_id not in _memories:
-        _memories[conversation_id] = ConversationMemory(k=CONVERSATION_WINDOW_SIZE)
-    return _memories[conversation_id]
+    """Return a memory object for a conversation, linked to Cosmos DB."""
+    return ConversationMemory(conversation_id, k=CONVERSATION_WINDOW_SIZE)
 
 
 def get_history_str(conversation_id: str) -> str:
@@ -59,6 +68,7 @@ def get_history_str(conversation_id: str) -> str:
     messages = mem.chat_memory.messages
     if not messages:
         return "(No previous conversation)"
+    
     lines = []
     for msg in messages:
         role = "User" if msg.type == "human" else "Assistant"
