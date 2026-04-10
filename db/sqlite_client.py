@@ -445,6 +445,16 @@ def create_escalation(
     booking_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Insert an escalation record."""
+    # Ensure the customer exists to avoid Foreign Key constraint failures
+    existing_cust = get_customer(customer_id)
+    if not existing_cust:
+        customer_id = "UNKNOWN"
+        if not get_customer("UNKNOWN"):
+            execute(
+                "INSERT INTO customers (customer_id, name, email) VALUES (?, ?, ?)",
+                ("UNKNOWN", "Anonymous User", "anonymous@stayease.com")
+            )
+
     esc_id = f"ESC{uuid.uuid4().hex[:6].upper()}"
     now = datetime.now().isoformat(sep=" ", timespec="seconds")
     execute(
