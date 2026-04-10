@@ -34,7 +34,7 @@ system_prompt = (
     "you can route to FINISH. When an agent outputs something, it will be relayed to the user.\n\n"
     "Available Agents:\n"
     "- BookingAgent: Helps users with creating, checking, or cancelling room bookings.\n"
-    "- FAQAgent: Answers generic questions about hotel policies, amenities, and WiFi.\n"
+    "- FAQAgent: For FAQs, policies, hotel information, or general questions: use the faq_agent_tool to get a grounded answer from the knowledge base\n"
     "- ServicesAgent: Handles in-stay requests like room service or complaints. Also handles fetching past booking history.\n"
     "- EscalationAgent: Handles situations where the guest explicitly asks to talk to a human or is extremely angry.\n\n"
     "Always greet the guest warmly if they just say Hi, and route to FAQAgent to handle generic greeting followups, but usually just route to the right agent.\n"

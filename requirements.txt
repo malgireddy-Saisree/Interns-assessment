@@ -4,3 +4,4 @@ azure-cosmos>=4.6.0
 langchain-core>=0.2.10
 langchain-openai>=0.1.14
 langgraph>=0.1.5
+azure-search-documents>=11.4.0

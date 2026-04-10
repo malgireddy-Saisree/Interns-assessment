@@ -1,87 +1,133 @@
 """
 Search for hotel information and FAQs.
-Uses SQLite queries against hotels, room_types, and services tables,
-plus a static FAQ dictionary for common questions.
+Drop-in replacement for the original faq_search_tool.py.
+ 
+At query time this module:
+  1. Embeds the user's question with Azure OpenAI.
+  2. Runs a hybrid search (BM25 + vector) against Azure AI Search.
+  3. Assembles the top-k chunks into a context string.
+  4. Returns a grounded answer string ready for the planner to use.
 """
-import json
+from __future__ import annotations
+ 
+import logging
+import os
+from typing import List, Optional
+
 from langchain_core.tools import tool
-from db.sqlite_client import get_all_hotels, get_room_types, get_services_for_hotel
 
-_STATIC_FAQ = {
-    "check_in_time": "Check-in time varies by hotel. StayEase City Grand: 14:00 (2 PM). StayEase Beach Resort: 15:00 (3 PM).",
-    "check_out_time": "Check-out time varies by hotel. StayEase City Grand: 12:00 (noon). StayEase Beach Resort: 11:00 (11 AM).",
-    "cancellation_policy": (
-        "Our cancellation policy:\n"
-        "• Free cancellation if cancelled 48+ hours before check-in (full refund)\n"
-        "• 50% refund if cancelled 24-48 hours before check-in\n"
-        "• No refund if cancelled less than 24 hours before check-in\n"
-        "(Exact hours vary by hotel.)"
-    ),
-    "pet_policy": "Pets are not allowed at StayEase properties. Service animals are an exception with prior approval.",
-    "parking": "Free valet parking is available at StayEase City Grand. StayEase Beach Resort offers complimentary self-parking.",
-    "wifi": "Complimentary high-speed WiFi is available in all rooms and public areas at all StayEase properties.",
-    "payment_methods": "We accept Credit Cards, Debit Cards, UPI, and Net Banking.",
-    "loyalty_program": (
-        "StayEase Loyalty Tiers:\n"
-        "• Bronze: 0-999 points — base benefits\n"
-        "• Silver: 1000-2999 points — 5% discount, late checkout\n"
-        "• Gold: 3000+ points — 10% discount, room upgrades, complimentary breakfast"
-    ),
-}
+try:
+    from ingestion.embedder import AzureEmbedder
+    from ingestion.search_index import AzureSearchIndex
+except ImportError:
+    # Fallback to handle typo in folder name if it exists
+    from ingesion.embedder import AzureEmbedder
+    from ingesion.search_index import AzureSearchIndex
 
+logger = logging.getLogger(__name__)
 
+class FAQRetriever:
+    """
+    Retrieves the most relevant FAQ chunks for a given question.
+    Instantiate once and reuse (embedder & search clients are persistent).
+    """
+
+    def __init__(
+        self,
+        top_k: int = 5,
+        source_filter: Optional[str] = None,
+    ):
+        aoai_endpoint    = os.environ["AZURE_OPENAI_ENDPOINT"]
+        aoai_key         = os.environ["AZURE_OPENAI_API_KEY"]
+        aoai_api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-01")
+        aoai_embed_deploy = os.environ.get("AZURE_OPENAI_EMBED_DEPLOYMENT", "text-embedding-3-small")
+        search_endpoint  = os.environ["AZURE_SEARCH_ENDPOINT"]
+        search_key       = os.environ["AZURE_SEARCH_API_KEY"]
+        search_index     = os.environ.get("AZURE_SEARCH_INDEX_NAME", "faq-index")
+ 
+        self.embedder = AzureEmbedder(
+            azure_endpoint=aoai_endpoint,
+            api_key=aoai_key,
+            api_version=aoai_api_version,
+            deployment_name=aoai_embed_deploy,
+        )
+        self.index = AzureSearchIndex(
+            endpoint=search_endpoint,
+            api_key=search_key,
+            index_name=search_index,
+        )
+        self.top_k = top_k
+        self.source_filter = source_filter  # e.g. "source eq 'faqs/policy.pdf'"
+ 
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+ 
+    def retrieve(self, question: str) -> List[dict]:
+        """
+        Return a list of the top-k matching chunk dicts:
+            [{"id", "content", "source", "chunk_index", "score"}, ...]
+        """
+        query_vector = self.embedder.embed_query(question)
+        hits = self.index.hybrid_search(
+            query_text=question,
+            query_vector=query_vector,
+            top_k=self.top_k,
+            filter_expr=self.source_filter,
+        )
+        return hits
+ 
+    def retrieve_as_context(self, question: str) -> str:
+        """
+        Return retrieved chunks formatted as a context string for the LLM.
+        """
+        hits = self.retrieve(question)
+        if not hits:
+            return "No relevant FAQ content found."
+ 
+        parts: List[str] = []
+        for i, hit in enumerate(hits, start=1):
+            parts.append(
+                f"[{i}] Source: {hit['source']} (chunk {hit['chunk_index']})\n"
+                f"{hit['content'].strip()}"
+            )
+        return "\n\n---\n\n".join(parts)
+ 
+ 
+# ---------------------------------------------------------------------------
+# Module-level singleton (lazy-initialised on first call)
+# ---------------------------------------------------------------------------
+_retriever: Optional[FAQRetriever] = None
+ 
+ 
+def _get_retriever() -> FAQRetriever:
+    global _retriever
+    if _retriever is None:
+        _retriever = FAQRetriever()
+    return _retriever
+ 
+ 
+# ---------------------------------------------------------------------------
+# Public helper — same signature as the original get_faq_answer
+# ---------------------------------------------------------------------------
+ 
+def get_faq_answer(question: str) -> str:
+    """
+    Retrieve the most relevant FAQ context for *question* and return it as
+    a formatted string.  The planner's LLM will synthesise a final answer
+    from this context.
+    """
+    retriever = _get_retriever()
+    context = retriever.retrieve_as_context(question)
+    logger.debug("Retrieved context for question '%s':\n%s", question, context)
+    return context
+ 
+ 
 @tool
 def faq_search_tool(question: str) -> str:
-    """Search for hotel information, room details, services, policies, and FAQs.
+    """Search the hotel knowledge base for FAQs, policies, room info, services, and general hotel questions.
     Args:
-        question: The user's question about the hotel, rooms, services, or policies.
-    Returns a JSON string with relevant information.
+        question: The user's question about the hotel, policies, rooms, or services.
+    Returns a grounded answer from the document knowledge base.
     """
-    q = question.lower()
-    results = {}
-
-    # Check static FAQ
-    faq_matches = []
-    keywords_map = {
-        "check_in_time": ["check in", "check-in", "checkin", "arrival time"],
-        "check_out_time": ["check out", "check-out", "checkout", "departure time"],
-        "cancellation_policy": ["cancel", "cancellation", "refund policy"],
-        "pet_policy": ["pet", "dog", "cat", "animal"],
-        "parking": ["parking", "valet", "car"],
-        "wifi": ["wifi", "wi-fi", "internet"],
-        "payment_methods": ["payment", "pay", "credit", "debit", "upi"],
-        "loyalty_program": ["loyalty", "points", "tier", "rewards", "membership"],
-    }
-    for key, keywords in keywords_map.items():
-        if any(kw in q for kw in keywords):
-            faq_matches.append({"topic": key, "answer": _STATIC_FAQ[key]})
-
-    if faq_matches:
-        results["faq"] = faq_matches
-
-    if any(w in q for w in ["hotel", "property", "location", "address", "phone", "contact", "amenities", "facilities"]):
-        results["hotels"] = get_all_hotels()
-
-    if any(w in q for w in ["room", "suite", "deluxe", "standard", "price", "rate", "cost", "occupancy"]):
-        rooms_all = []
-        for h in get_all_hotels():
-            rts = get_room_types(h["hotel_id"])
-            for rt in rts:
-                rt["hotel_name"] = h["name"]
-            rooms_all.extend(rts)
-        results["rooms"] = rooms_all
-
-    if any(w in q for w in ["service", "spa", "breakfast", "dinner", "transfer", "airport", "sport", "romantic"]):
-        services_all = []
-        for h in get_all_hotels():
-            svcs = get_services_for_hotel(h["hotel_id"])
-            for s in svcs:
-                s["hotel_name"] = h["name"]
-            services_all.extend(svcs)
-        results["services"] = services_all
-
-    if not results:
-        results["hotels"] = get_all_hotels()
-        results["note"] = "No specific match found. Here is general hotel information."
-
-    return json.dumps(results, indent=2, default=str)
+    return get_faq_answer(question)
