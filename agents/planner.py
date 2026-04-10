@@ -134,7 +134,7 @@ def run_planner(user_message: str, conversation_id: str) -> str:
         if msg.type == "human":
             langchain_messages.append(HumanMessage(content=msg.content))
         else:
-            langchain_messages.append(SystemMessage(content=msg.content))  # Treat AI answers as prior systemic context
+            langchain_messages.append(SystemMessage(content=msg.content)) 
             
     # Add new user message
     langchain_messages.append(HumanMessage(content=user_message))
